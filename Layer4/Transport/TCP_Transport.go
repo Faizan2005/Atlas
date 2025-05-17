@@ -14,9 +14,9 @@ type TCPTransport struct {
 	Listener net.Listener
 }
 
-type TCPPeer struct {
-	Conn net.Conn
-}
+// type TCPPeer struct {
+// 	Conn net.Conn
+// }
 
 func NewTCPTransport(opts TransportOpts) *TCPTransport {
 	return &TCPTransport{
@@ -24,11 +24,11 @@ func NewTCPTransport(opts TransportOpts) *TCPTransport {
 	}
 }
 
-func NewTCPPeer(conn net.Conn) *TCPPeer {
-	return &TCPPeer{
-		Conn: conn,
-	}
-}
+// func NewTCPPeer(conn net.Conn) *TCPPeer {
+// 	return &TCPPeer{
+// 		Conn: conn,
+// 	}
+// }
 
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
