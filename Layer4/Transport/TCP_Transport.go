@@ -6,6 +6,7 @@ import (
 	"net"
 
 	backend "github.com/Faizan2005/Backend"
+	algorithm "github.com/Faizan2005/Balancer"
 )
 
 type TransportOpts struct {
@@ -80,13 +81,15 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	server1 := p.ServerPool.Servers[0]
-	if server1 == nil {
-		log.Println("No servers available")
-		return
-	}
+	algo := algorithm.SelectAlgo(p.ServerPool)
+	server := algo.ImplementAlgo(p.ServerPool)
+	// server1 := p.ServerPool.Servers[0]
+	// if server1 == nil {
+	// 	log.Println("No servers available")
+	// 	return
+	// }
 
-	backendConn, err := net.Dial("tcp", server1.Address)
+	backendConn, err := net.Dial("tcp", server.Address)
 	if err != nil {
 		log.Printf("Failed to dial backend: %v", err)
 		return

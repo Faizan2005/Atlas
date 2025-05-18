@@ -25,6 +25,8 @@ func main() {
 		panic(err)
 	}
 
+	go ClientServer()
+
 	select {}
 
 }
