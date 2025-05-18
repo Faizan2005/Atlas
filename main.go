@@ -1,6 +1,9 @@
 package main
 
 import (
+	"sync"
+
+	backend "github.com/Faizan2005/Backend"
 	tcp "github.com/Faizan2005/Layer4/Transport"
 )
 
@@ -10,7 +13,18 @@ func main() {
 	}
 
 	transport := tcp.NewTCPTransport(opts)
-	transport.ListenAndAccept()
+
+	pool := backend.BackendPool{
+		Servers: backend.MakeTestServers(),
+		Mutex:   *new(sync.RWMutex),
+	}
+
+	p := tcp.NewLBProperties(*transport, pool)
+
+	if err := p.ListenAndAccept(); err != nil {
+		panic(err)
+	}
 
 	select {}
+
 }

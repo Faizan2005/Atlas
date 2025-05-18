@@ -1,8 +1,11 @@
 package layer4
 
 import (
+	"io"
 	"log"
 	"net"
+
+	backend "github.com/Faizan2005/Backend"
 )
 
 type TransportOpts struct {
@@ -12,6 +15,18 @@ type TransportOpts struct {
 type TCPTransport struct {
 	TransportOpts
 	Listener net.Listener
+}
+
+type LBProperties struct {
+	Transport  *TCPTransport
+	ServerPool *backend.BackendPool
+}
+
+func NewLBProperties(Transport TCPTransport, Pool backend.BackendPool) *LBProperties {
+	return &LBProperties{
+		Transport:  &Transport,
+		ServerPool: &Pool,
+	}
 }
 
 // type TCPPeer struct {
@@ -30,51 +45,72 @@ func NewTCPTransport(opts TransportOpts) *TCPTransport {
 // 	}
 // }
 
-func (t *TCPTransport) ListenAndAccept() error {
+func (p *LBProperties) ListenAndAccept() error {
 	var err error
 
-	t.Listener, err = net.Listen("tcp", t.ListenAddr)
+	p.Transport.Listener, err = net.Listen("tcp", p.Transport.ListenAddr)
 	if err != nil {
-		log.Printf("Failed to listen on %s: %v", t.Listener, err)
+		log.Printf("Failed to listen on %s: %v", p.Transport.ListenAddr, err)
 		return err
 	}
 
-	go t.loopAndAccept()
+	go p.loopAndAccept()
 
 	return nil
 }
 
-func (t *TCPTransport) loopAndAccept() {
+func (p *LBProperties) loopAndAccept() {
 	for {
-		conn, err := t.Listener.Accept()
+		conn, err := p.Transport.Listener.Accept()
 		if err != nil {
-			log.Printf("Failed to establish connection with %s: %v", t.ListenAddr, err)
+			log.Printf("Failed to establish connection with %s: %v", p.Transport.ListenAddr, err)
 			return
 		}
 
-		go t.handleConn(conn)
+		go p.handleConn(conn)
 	}
 }
 
-func (t *TCPTransport) handleConn(conn net.Conn) {
+func (p *LBProperties) handleConn(conn net.Conn) {
 	//	peer := NewTCPPeer(conn)
 	log.Printf("Connection established with %s", conn.RemoteAddr())
 
 	defer func() {
-		log.Printf("Closing connection with %s", conn.RemoteAddr())
+		log.Printf("Closing connection with client %s", conn.RemoteAddr())
 		conn.Close()
 	}()
 
-	log.Print("Starting reading loop...")
-	for {
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Printf("Error reading from the connection %v", err)
-			return
-		}
-
-		log.Printf("Recieved (%d) bytes from the peer", n)
+	server1 := p.ServerPool.Servers[0]
+	if server1 == nil {
+		log.Println("No servers available")
+		return
 	}
+
+	backendConn, err := net.Dial("tcp", server1.Address)
+	if err != nil {
+		log.Printf("Failed to dial backend: %v", err)
+		return
+	}
+
+	go io.Copy(backendConn, conn) // client → server
+	io.Copy(conn, backendConn)    // server → client
+	log.Print("echoed msg from server to client")
+
+	defer func() {
+		log.Printf("Closing backend connection with server %s", backendConn.RemoteAddr())
+		backendConn.Close()
+	}()
+
+	// log.Print("Starting reading loop...")
+	// for {
+	// 	buf := make([]byte, 1024)
+	// 	n, err := conn.Read(buf)
+	// 	if err != nil {
+	// 		log.Printf("Error reading from the connection %v", err)
+	// 		return
+	// 	}
+
+	// 	log.Printf("Recieved (%d) bytes from the peer", n)
+	// }
 
 }

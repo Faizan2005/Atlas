@@ -2,6 +2,7 @@ package backend
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -42,18 +43,32 @@ func (bs *BackendServer) testServerListener() {
 			}
 
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() {
+					log.Printf("Closing backend connection with server %s", bs.Address)
+					c.Close()
+				}()
+
 				buff := make([]byte, 1024)
-				n, err := c.Read(buff)
-				if err != nil {
-					log.Printf("Error reading from Load Balancer: %v", err)
-					return
+
+				for {
+					n, err := c.Read(buff)
+					if err != nil {
+						if err == io.EOF {
+							log.Printf("Client closed the connection")
+						} else {
+							log.Printf("Error reading from Load Balancer: %v", err)
+						}
+						return
+					}
+
+					log.Printf("Received (%d) bytes from Load Balancer on %s", n, bs.Address)
+
+					_, err = c.Write([]byte("Hello from backend " + bs.Address + "\n"))
+					if err != nil {
+						log.Printf("Error writing to Load Balancer: %v", err)
+						return
+					}
 				}
-
-				log.Printf("Received (%d) bytes from Load Balancer on %s", n, bs.Address)
-
-				// Echo back a dummy response
-				c.Write([]byte("Hello from backend " + bs.Address + "\n"))
 			}(conn)
 		}
 	}()
