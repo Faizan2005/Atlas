@@ -1,23 +1,36 @@
-package Backend
+package backend
 
 import (
 	"sync"
 	"time"
 )
 
+type ServerOpts struct {
+	Address string
+	Weight  int
+}
+
 type BackendServer struct {
-	Address       string  // IP:Port
-	Weight        int     // For Weighted Round Robin
-	ConnCount     int     // For Least Connections
-	AvgLatency    float64 // For Least Response Time
-	Alive         bool    // Health check status
+	ServerOpts
+	ConnCount int // For Least Connections
+	//AvgLatency    float64 // For Least Response Time
+	Alive         bool // Health check status
 	LastChecked   time.Time
 	StickyClients map[string]bool // Optional: for session stickiness
 	mu            sync.Mutex
 }
 
 type BackendPool struct {
-	Backends []*BackendServer
-	Mutex    sync.RWMutex
-	Index    int // For Round Robin
+	Servers []*BackendServer
+	Mutex   sync.RWMutex
+	Index   int // For Round Robin
+}
+
+func NewServer(Opts ServerOpts) *BackendServer {
+	return &BackendServer{
+		ServerOpts:    Opts,
+		Alive:         true,
+		StickyClients: make(map[string]bool),
+		mu:            *new(sync.Mutex),
+	}
 }
