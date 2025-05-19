@@ -15,10 +15,12 @@ func (pool *BackendPool) HealthChecker() {
 			conn, err := net.DialTimeout("tcp", s.Address, 2*time.Second)
 			if err != nil {
 				s.Alive = false
-				log.Printf("[HealthCheck] %s is down", s.Address)
+				s.LastChecked = time.Now()
+				log.Printf("[HealthCheck] %s is down, timestamp %s", s.Address, time.Now())
 			} else {
 				s.Alive = true
-				log.Printf("[HealthCheck] %s is up and running", s.Address)
+				s.LastChecked = time.Now()
+				log.Printf("[HealthCheck] %s is up and running, timestamp %s", s.Address, time.Now())
 				conn.Close()
 			}
 
