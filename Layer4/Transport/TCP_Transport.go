@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 
 	backend "github.com/Faizan2005/Backend"
 	algorithm "github.com/Faizan2005/Balancer"
@@ -85,6 +86,13 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	defer func() {
 		log.Printf("Closing connection with client %s", conn.RemoteAddr())
 		conn.Close()
+	}()
+
+	go func() {
+		for {
+			p.ServerPool.HealthChecker()
+			time.Sleep(5 * time.Second)
+		}
 	}()
 
 	algoName := algorithm.SelectAlgo(p.ServerPool)

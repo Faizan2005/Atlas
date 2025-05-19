@@ -16,10 +16,15 @@ func (rr *AlgoRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
-	server := pool.Servers[pool.Index%len(pool.Servers)]
-	pool.Index++
-
-	return server
+	n := len(pool.Servers)
+	for i := 0; i < n; i++ {
+		index := (pool.Index + i) % n
+		if pool.Servers[index].Alive {
+			pool.Index = index + 1
+			return pool.Servers[index]
+		}
+	}
+	return nil // No healthy server found
 }
 
 // Implementing Weighted RR algo
@@ -33,20 +38,29 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 
 	total := 0
 	for _, s := range pool.Servers {
-		total += s.Weight
+		if s.Alive {
+			total += s.Weight
+		}
+	}
+
+	if total == 0 {
+		return nil // No healthy servers
 	}
 
 	wrr.counter = (wrr.counter + 1) % total
 
 	sum := 0
 	for _, s := range pool.Servers {
+		if !s.Alive {
+			continue
+		}
 		sum += s.Weight
 		if wrr.counter < sum {
 			return s
 		}
 	}
-	return nil
 
+	return nil
 }
 
 func SelectAlgo(pool *pool.BackendPool) string {
