@@ -10,9 +10,9 @@ type LBStrategy interface {
 }
 
 // Implementing RR algo
-type algoRR struct{}
+type AlgoRR struct{}
 
-func (rr *algoRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
+func (rr *AlgoRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -23,11 +23,11 @@ func (rr *algoRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 }
 
 // Implementing Weighted RR algo
-type algoWRR struct {
+type AlgoWRR struct {
 	counter int
 }
 
-func (wrr *algoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
+func (wrr *AlgoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -35,8 +35,6 @@ func (wrr *algoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 	for _, s := range pool.Servers {
 		total += s.Weight
 	}
-
-	wrr.counter = 0
 
 	wrr.counter = (wrr.counter + 1) % total
 
@@ -51,12 +49,12 @@ func (wrr *algoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 
 }
 
-func SelectAlgo(pool *pool.BackendPool) LBStrategy {
+func SelectAlgo(pool *pool.BackendPool) string {
 	if HasUnevenWeights(pool) {
-		return &algoWRR{}
+		return "weighted_round_robin"
 	}
 
-	return &algoRR{}
+	return "round_robin"
 }
 
 func HasUnevenWeights(pool *pool.BackendPool) bool {
@@ -74,4 +72,13 @@ func HasUnevenWeights(pool *pool.BackendPool) bool {
 		}
 	}
 	return false
+}
+
+func NewRRAlgo() LBStrategy {
+	return &AlgoRR{}
+}
+
+func NewWRRAlgo() LBStrategy {
+	return &AlgoWRR{
+		counter: 0}
 }

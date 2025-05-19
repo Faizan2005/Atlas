@@ -19,14 +19,20 @@ type TCPTransport struct {
 }
 
 type LBProperties struct {
-	Transport  *TCPTransport
-	ServerPool *backend.BackendPool
+	Transport     *TCPTransport
+	ServerPool    *backend.BackendPool
+	AlgorithmsMap map[string]algorithm.LBStrategy
 }
 
 func NewLBProperties(Transport TCPTransport, Pool backend.BackendPool) *LBProperties {
+	algoMap := map[string]algorithm.LBStrategy{
+		"round_robin":          algorithm.NewRRAlgo(),
+		"weighted_round_robin": algorithm.NewWRRAlgo(),
+	}
 	return &LBProperties{
-		Transport:  &Transport,
-		ServerPool: &Pool,
+		Transport:     &Transport,
+		ServerPool:    &Pool,
+		AlgorithmsMap: algoMap,
 	}
 }
 
@@ -81,13 +87,9 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	algo := algorithm.SelectAlgo(p.ServerPool)
+	algoName := algorithm.SelectAlgo(p.ServerPool)
+	algo := p.AlgorithmsMap[algoName]
 	server := algo.ImplementAlgo(p.ServerPool)
-	// server1 := p.ServerPool.Servers[0]
-	// if server1 == nil {
-	// 	log.Println("No servers available")
-	// 	return
-	// }
 
 	backendConn, err := net.Dial("tcp", server.Address)
 	if err != nil {
@@ -103,17 +105,4 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		log.Printf("Closing backend connection with server %s", backendConn.RemoteAddr())
 		backendConn.Close()
 	}()
-
-	// log.Print("Starting reading loop...")
-	// for {
-	// 	buf := make([]byte, 1024)
-	// 	n, err := conn.Read(buf)
-	// 	if err != nil {
-	// 		log.Printf("Error reading from the connection %v", err)
-	// 		return
-	// 	}
-
-	// 	log.Printf("Recieved (%d) bytes from the peer", n)
-	// }
-
 }
