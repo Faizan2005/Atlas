@@ -63,7 +63,8 @@ func (bs *BackendServer) testServerListener() {
 
 					log.Printf("Received (%d) bytes from Load Balancer on %s", n, bs.Address)
 
-					_, err = c.Write([]byte("Hello from backend " + bs.Address + "\n"))
+					msg := fmt.Sprintf("Hello from backend %s server weight: %d\n", bs.Address, bs.Weight)
+					_, err = c.Write([]byte(msg))
 					if err != nil {
 						log.Printf("Error writing to Load Balancer: %v", err)
 						return
