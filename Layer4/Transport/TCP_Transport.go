@@ -29,6 +29,7 @@ func NewLBProperties(Transport TCPTransport, Pool backend.BackendPool) *LBProper
 	algoMap := map[string]algorithm.LBStrategy{
 		"round_robin":          algorithm.NewRRAlgo(),
 		"weighted_round_robin": algorithm.NewWRRAlgo(),
+		"least_connection":     algorithm.NewLCountAlgo(),
 	}
 	return &LBProperties{
 		Transport:     &Transport,
@@ -99,6 +100,10 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	algo := p.AlgorithmsMap[algoName]
 	server := algo.ImplementAlgo(p.ServerPool)
 
+	server.Mx.Lock()
+	server.ConnCount++
+	server.Mx.Unlock()
+
 	backendConn, err := net.Dial("tcp", server.Address)
 	if err != nil {
 		log.Printf("Failed to dial backend: %v", err)
@@ -108,6 +113,10 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	go io.Copy(backendConn, conn) // client → server
 	io.Copy(conn, backendConn)    // server → client
 	log.Print("echoed msg from server to client")
+
+	server.Mx.Lock()
+	server.ConnCount--
+	server.Mx.Unlock()
 
 	defer func() {
 		log.Printf("Closing backend connection with server %s", backendConn.RemoteAddr())

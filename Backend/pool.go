@@ -17,7 +17,7 @@ type BackendServer struct {
 	Alive         bool // Health check status
 	LastChecked   time.Time
 	StickyClients map[string]bool // Optional: for session stickiness
-	mu            sync.Mutex
+	Mx            sync.Mutex
 }
 
 type BackendPool struct {
@@ -31,6 +31,6 @@ func NewServer(Opts ServerOpts) *BackendServer {
 		ServerOpts:    Opts,
 		Alive:         true,
 		StickyClients: make(map[string]bool),
-		mu:            *new(sync.Mutex),
+		Mx:            *new(sync.Mutex),
 	}
 }

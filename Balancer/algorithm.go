@@ -1,18 +1,18 @@
 package balancer
 
 import (
-	pool "github.com/Faizan2005/Backend"
+	backend "github.com/Faizan2005/Backend"
 )
 
 // Interface for selecting lb algorithm for different situations
 type LBStrategy interface {
-	ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer
+	ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer
 }
 
 // Implementing RR algo
 type AlgoRR struct{}
 
-func (rr *AlgoRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
+func (rr *AlgoRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -32,7 +32,7 @@ type AlgoWRR struct {
 	counter int
 }
 
-func (wrr *AlgoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
+func (wrr *AlgoWRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -63,7 +63,31 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *pool.BackendPool) *pool.BackendServer {
 	return nil
 }
 
-func SelectAlgo(pool *pool.BackendPool) string {
+type AlgoLeastConn struct{}
+
+func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+	pool.Mutex.Lock()
+	defer pool.Mutex.Unlock()
+
+	selected := new(*backend.BackendServer)
+	minConns := int(^uint(0) >> 1) // Max int
+
+	for _, s := range pool.Servers {
+		s.Mx.Lock()
+		cCount := s.ConnCount
+		s.Mx.Unlock()
+
+		if selected == nil || cCount < minConns {
+			selected = &s
+			minConns = cCount
+		}
+
+	}
+
+	return *selected
+}
+
+func SelectAlgo(pool *backend.BackendPool) string {
 	if HasUnevenWeights(pool) {
 		return "weighted_round_robin"
 	}
@@ -71,7 +95,7 @@ func SelectAlgo(pool *pool.BackendPool) string {
 	return "round_robin"
 }
 
-func HasUnevenWeights(pool *pool.BackendPool) bool {
+func HasUnevenWeights(pool *backend.BackendPool) bool {
 	pool.Mutex.RLock()
 	defer pool.Mutex.RUnlock()
 
@@ -95,4 +119,8 @@ func NewRRAlgo() LBStrategy {
 func NewWRRAlgo() LBStrategy {
 	return &AlgoWRR{
 		counter: 0}
+}
+
+func NewLCountAlgo() LBStrategy {
+	return &AlgoLeastConn{}
 }
