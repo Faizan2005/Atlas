@@ -96,9 +96,10 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		}
 	}()
 
-	algoName := algorithm.SelectAlgo(p.ServerPool)
-	algo := p.AlgorithmsMap[algoName]
-	server := algo.ImplementAlgo(p.ServerPool)
+	algoNames := algorithm.SelectAlgo(p.ServerPool)
+	// algo := p.AlgorithmsMap[algoName]
+	// server := algo.ImplementAlgo(p.ServerPool)
+	server := algorithm.ApplyAlgoChain(p.ServerPool, algoNames, p.AlgorithmsMap)
 
 	server.Mx.Lock()
 	server.ConnCount++

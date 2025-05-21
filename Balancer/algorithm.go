@@ -1,8 +1,39 @@
 package balancer
 
 import (
+	"log"
+
 	backend "github.com/Faizan2005/Backend"
 )
+
+type AlgoProperty struct {
+	Name      string
+	Priority  int
+	Condition func(pool *backend.BackendPool) bool
+}
+
+var AlgoRules = []AlgoProperty{
+	// {
+	//     Name: "ip_hash",
+	//     Priority: 1,
+	//     Condition: NeedsSessionAffinity,
+	// },
+	{
+		Name:      "least_connection",
+		Priority:  1,
+		Condition: HasLoadImbalance,
+	},
+	{
+		Name:      "weighted_round_robin",
+		Priority:  2,
+		Condition: HasUnevenWeights,
+	},
+	{
+		Name:      "round_robin",
+		Priority:  3,
+		Condition: HasUnevenWeights,
+	},
+}
 
 // Interface for selecting lb algorithm for different situations
 type LBStrategy interface {
@@ -87,12 +118,21 @@ func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.Backe
 	return *selected
 }
 
-func SelectAlgo(pool *backend.BackendPool) string {
-	if HasUnevenWeights(pool) {
-		return "weighted_round_robin"
+func SelectAlgo(pool *backend.BackendPool) []string {
+	// if HasUnevenWeights(pool) {
+	// 	return "weighted_round_robin"
+	// }
+
+	// return "round_robin"
+	var selected []string
+
+	for _, a := range AlgoRules {
+		if a.Condition(pool) {
+			selected = append(selected, a.Name)
+		}
 	}
 
-	return "round_robin"
+	return selected
 }
 
 func HasUnevenWeights(pool *backend.BackendPool) bool {
@@ -123,4 +163,44 @@ func NewWRRAlgo() LBStrategy {
 
 func NewLCountAlgo() LBStrategy {
 	return &AlgoLeastConn{}
+}
+
+func HasLoadImbalance(pool *backend.BackendPool) bool {
+	pool.Mutex.Lock()
+	defer pool.Mutex.Unlock()
+
+	if len(pool.Servers) < 2 {
+		return false
+	}
+
+	max, min := pool.Servers[0].ConnCount, pool.Servers[0].ConnCount
+
+	for _, s := range pool.Servers {
+		if s.ConnCount > max {
+			max = s.ConnCount
+		}
+
+		if s.ConnCount < min {
+			min = s.ConnCount
+		}
+	}
+
+	return max-min >= 10
+}
+
+func ApplyAlgoChain(pool *backend.BackendPool, algoNames []string, algo map[string]LBStrategy) *backend.BackendServer {
+	for _, name := range algoNames {
+		strategy, exists := algo[name]
+		if !exists {
+			log.Printf("Algorithm %s not implemented", name)
+			continue
+		}
+
+		server := strategy.ImplementAlgo(pool)
+		if server != nil {
+			return server // You could support deeper chaining too
+		}
+	}
+
+	return nil
 }
