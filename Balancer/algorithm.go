@@ -48,17 +48,21 @@ func (rr *AlgoRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServe
 	defer pool.Mutex.Unlock()
 
 	n := len(pool.Servers)
+	log.Printf("Round Robin: Starting selection from index %d", pool.Index)
+
 	for i := 0; i < n; i++ {
 		index := (pool.Index + i) % n
 		if pool.Servers[index].Alive {
+			log.Printf("Round Robin: Selected server %s at index %d", pool.Servers[index].Address, index)
 			pool.Index = index + 1
 			return pool.Servers[index]
 		}
 	}
+
+	log.Println("Round Robin: No healthy server found")
 	return nil // No healthy server found
 }
 
-// Implementing Weighted RR algo
 type AlgoWRR struct {
 	counter int
 }
@@ -75,10 +79,12 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendSer
 	}
 
 	if total == 0 {
+		log.Println("Weighted Round Robin: No healthy servers available")
 		return nil // No healthy servers
 	}
 
 	wrr.counter = (wrr.counter + 1) % total
+	log.Printf("Weighted Round Robin: Current counter value is %d", wrr.counter)
 
 	sum := 0
 	for _, s := range pool.Servers {
@@ -87,10 +93,12 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendSer
 		}
 		sum += s.Weight
 		if wrr.counter < sum {
+			log.Printf("Weighted Round Robin: Selected server %s with weight %d", s.Address, s.Weight)
 			return s
 		}
 	}
 
+	log.Println("Weighted Round Robin: No server selected")
 	return nil
 }
 
@@ -103,36 +111,57 @@ func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.Backe
 	selected := new(*backend.BackendServer)
 	minConns := int(^uint(0) >> 1) // Max int
 
+	log.Println("Least Connections: Evaluating servers for least connections")
+
 	for _, s := range pool.Servers {
 		s.Mx.Lock()
 		cCount := s.ConnCount
 		s.Mx.Unlock()
 
+		log.Printf("Least Connections: Server %s has %d connections", s.Address, cCount)
+
 		if selected == nil || cCount < minConns {
 			selected = &s
 			minConns = cCount
+			log.Printf("Least Connections: New selected server %s with %d connections", s.Address, cCount)
 		}
-
 	}
 
-	return *selected
+	if selected != nil {
+		log.Printf("Least Connections: Selected server %s with %d connections", (*selected).Address, minConns)
+		return *selected
+	}
+
+	log.Println("Least Connections: No server selected")
+	return nil
 }
 
-func SelectAlgo(pool *backend.BackendPool) []string {
+func SelectAlgo(pool *backend.BackendPool) string {
 	// if HasUnevenWeights(pool) {
 	// 	return "weighted_round_robin"
 	// }
 
 	// return "round_robin"
-	var selected []string
+	// var selected []string
 
-	for _, a := range AlgoRules {
-		if a.Condition(pool) {
-			selected = append(selected, a.Name)
-		}
+	// for _, a := range AlgoRules {
+	// 	if a.Condition(pool) {
+	// 		selected = append(selected, a.Name)
+	// 	}
+	// }
+
+	// return selected
+
+	if HasLoadImbalance(pool) {
+		return "least_connection"
 	}
 
-	return selected
+	if HasUnevenWeights(pool) {
+		return "weighted_round_robin"
+	}
+
+	log.Println("SelectAlgo: Using default round_robin strategy")
+	return "round_robin"
 }
 
 func HasUnevenWeights(pool *backend.BackendPool) bool {
@@ -185,21 +214,18 @@ func HasLoadImbalance(pool *backend.BackendPool) bool {
 		}
 	}
 
-	return max-min >= 10
+	return max-min >= 5
 }
 
-func ApplyAlgoChain(pool *backend.BackendPool, algoNames []string, algo map[string]LBStrategy) *backend.BackendServer {
-	for _, name := range algoNames {
-		strategy, exists := algo[name]
-		if !exists {
-			log.Printf("Algorithm %s not implemented", name)
-			continue
-		}
+func ApplyAlgo(pool *backend.BackendPool, algoName string, algo map[string]LBStrategy) *backend.BackendServer {
+	strategy, exists := algo[algoName]
+	if !exists {
+		log.Printf("Algorithm %s not implemented", algoName)
+	}
 
-		server := strategy.ImplementAlgo(pool)
-		if server != nil {
-			return server // You could support deeper chaining too
-		}
+	server := strategy.ImplementAlgo(pool)
+	if server != nil {
+		return server // You could support deeper chaining too
 	}
 
 	return nil

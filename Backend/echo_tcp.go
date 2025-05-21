@@ -4,18 +4,19 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net"
 )
 
 func MakeTestServers() []*BackendServer {
 	var servers []*BackendServer
 
-	for i := 1; i <= 5; i++ {
+	weights := []int{5, 3, 1} // Highly skewed weights
+
+	for i := 0; i < 3; i++ {
 		addr := fmt.Sprintf(":900%d", i)
 		opts := ServerOpts{
 			Address: addr,
-			Weight:  rand.Intn(10) + 1,
+			Weight:  weights[i],
 		}
 		server := NewServer(opts)
 		server.testServerListener()

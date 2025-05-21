@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func runClient(id int) {
+func runClient(id int, holdTime time.Duration) {
 	conn, err := net.Dial("tcp", "localhost:3000")
 	if err != nil {
 		fmt.Printf("[Client %d] Connection error: %v\n", id, err)
@@ -21,17 +21,23 @@ func runClient(id int) {
 	buf := make([]byte, 1024)
 	n, _ := conn.Read(buf)
 	fmt.Printf("[Client %d] Received: %s\n", id, string(buf[:n]))
+
+	time.Sleep(holdTime)
 }
 
 func ClientServer() {
 	var wg sync.WaitGroup
 	clientCount := 20
 
-	for i := 1; i <= clientCount; i++ {
+	for i := 0; i < clientCount; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			runClient(id)
+			if id < 20 {
+				runClient(id, 8*time.Second)
+			} else {
+				runClient(id, 1*time.Second)
+			}
 		}(i)
 
 		time.Sleep(100 * time.Millisecond) // small delay to stagger connections

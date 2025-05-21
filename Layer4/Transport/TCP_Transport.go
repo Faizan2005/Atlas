@@ -4,7 +4,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"time"
 
 	backend "github.com/Faizan2005/Backend"
 	algorithm "github.com/Faizan2005/Balancer"
@@ -89,17 +88,18 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	go func() {
-		for {
-			p.ServerPool.HealthChecker()
-			time.Sleep(5 * time.Second)
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		p.ServerPool.HealthChecker()
+	// 		time.Sleep(5 * time.Second)
+	// 	}
+	// }()
 
-	algoNames := algorithm.SelectAlgo(p.ServerPool)
+	algoName := algorithm.SelectAlgo(p.ServerPool)
+	log.Printf("Selected algo to implement (%s)", algoName)
 	// algo := p.AlgorithmsMap[algoName]
 	// server := algo.ImplementAlgo(p.ServerPool)
-	server := algorithm.ApplyAlgoChain(p.ServerPool, algoNames, p.AlgorithmsMap)
+	server := algorithm.ApplyAlgo(p.ServerPool, algoName, p.AlgorithmsMap)
 
 	server.Mx.Lock()
 	server.ConnCount++
