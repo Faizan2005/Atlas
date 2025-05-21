@@ -136,31 +136,23 @@ func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.Backe
 	return nil
 }
 
-func SelectAlgo(pool *backend.BackendPool) string {
-	// if HasUnevenWeights(pool) {
-	// 	return "weighted_round_robin"
-	// }
+func SelectAlgoL4(pool *backend.BackendPool) string {
+	if HasUnevenWeights(pool) {
+		return "weighted_least_connection"
+	}
+	return "least_connection"
+}
 
-	// return "round_robin"
-	// var selected []string
-
-	// for _, a := range AlgoRules {
-	// 	if a.Condition(pool) {
-	// 		selected = append(selected, a.Name)
-	// 	}
-	// }
-
-	// return selected
-
+func SelectAlgoL7(pool *backend.BackendPool) string {
 	if HasLoadImbalance(pool) {
+		if HasUnevenWeights(pool) {
+			return "weighted_least_connection"
+		}
 		return "least_connection"
 	}
-
 	if HasUnevenWeights(pool) {
 		return "weighted_round_robin"
 	}
-
-	log.Println("SelectAlgo: Using default round_robin strategy")
 	return "round_robin"
 }
 
@@ -192,6 +184,10 @@ func NewWRRAlgo() LBStrategy {
 
 func NewLCountAlgo() LBStrategy {
 	return &AlgoLeastConn{}
+}
+
+func NewWLCountAlgo() LBStrategy {
+	return &AlgoWLeastConn{}
 }
 
 func HasLoadImbalance(pool *backend.BackendPool) bool {
@@ -228,5 +224,39 @@ func ApplyAlgo(pool *backend.BackendPool, algoName string, algo map[string]LBStr
 		return server // You could support deeper chaining too
 	}
 
+	return nil
+}
+
+type AlgoWLeastConn struct{}
+
+func (wlc *AlgoWLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+	pool.Mutex.Lock()
+	defer pool.Mutex.Unlock()
+
+	selected := new(*backend.BackendServer)
+	minScore := int(^uint(0) >> 1) // Max int
+
+	log.Println("Weighted Least Connections: Evaluating servers for least connections")
+
+	for _, s := range pool.Servers {
+		s.Mx.Lock()
+		score := int(s.ConnCount) / int(s.Weight)
+		s.Mx.Unlock()
+
+		log.Printf("Weighted Least Connections: Server %s has %d connections", s.Address, score)
+
+		if selected == nil || score < minScore {
+			selected = &s
+			minScore = score
+			log.Printf("Weighted Least Connections: New selected server %s with %d connections", s.Address, score)
+		}
+	}
+
+	if selected != nil {
+		log.Printf("Weighted Least Connections: Selected server %s with %d score", (*selected).Address, minScore)
+		return *selected
+	}
+
+	log.Println("Weighted Least Connections: No server selected")
 	return nil
 }

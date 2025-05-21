@@ -26,9 +26,10 @@ type LBProperties struct {
 
 func NewLBProperties(Transport TCPTransport, Pool backend.BackendPool) *LBProperties {
 	algoMap := map[string]algorithm.LBStrategy{
-		"round_robin":          algorithm.NewRRAlgo(),
-		"weighted_round_robin": algorithm.NewWRRAlgo(),
-		"least_connection":     algorithm.NewLCountAlgo(),
+		"round_robin":               algorithm.NewRRAlgo(),
+		"weighted_round_robin":      algorithm.NewWRRAlgo(),
+		"least_connection":          algorithm.NewLCountAlgo(),
+		"weighted_least_connection": algorithm.NewWLCountAlgo(),
 	}
 	return &LBProperties{
 		Transport:     &Transport,
@@ -95,7 +96,7 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	// 	}
 	// }()
 
-	algoName := algorithm.SelectAlgo(p.ServerPool)
+	algoName := algorithm.SelectAlgoL4(p.ServerPool)
 	log.Printf("Selected algo to implement (%s)", algoName)
 	// algo := p.AlgorithmsMap[algoName]
 	// server := algo.ImplementAlgo(p.ServerPool)
