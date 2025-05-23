@@ -1,12 +1,16 @@
 package layer4
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"net"
+	"strings"
 
 	backend "github.com/Faizan2005/Backend"
 	algorithm "github.com/Faizan2005/Balancer"
+	L7 "github.com/Faizan2005/Layer7"
 )
 
 type TransportOpts struct {
@@ -84,6 +88,18 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	//	peer := NewTCPPeer(conn)
 	log.Printf("Connection established with %s", conn.RemoteAddr())
 
+	reader := bufio.NewReader(conn)
+	data, err := reader.Peek(16)
+	if err != nil {
+		log.Println("Error peeking:", err)
+	}
+
+	go func() {
+		if isHTTP(data[:]) {
+			L7.HandleHTTP(data, conn)
+		}
+	}()
+
 	defer func() {
 		log.Printf("Closing connection with client %s", conn.RemoteAddr())
 		conn.Close()
@@ -97,6 +113,7 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	// }()
 
 	algoName := algorithm.SelectAlgoL4(p.ServerPool)
+
 	log.Printf("Selected algo to implement (%s)", algoName)
 	// algo := p.AlgorithmsMap[algoName]
 	// server := algo.ImplementAlgo(p.ServerPool)
@@ -124,4 +141,18 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		log.Printf("Closing backend connection with server %s", backendConn.RemoteAddr())
 		backendConn.Close()
 	}()
+}
+
+func isHTTP(data []byte) bool {
+	methods := []string{"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"}
+
+	for _, m := range methods {
+		if strings.HasPrefix(string(data), m+" ") {
+			fmt.Printf("Detected HTTP method: %s\n", m)
+			return true
+		}
+	}
+
+	fmt.Println("Not an HTTP method")
+	return false
 }

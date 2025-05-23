@@ -1,7 +1,10 @@
 package balancer
 
 import (
+	"fmt"
+	"hash/fnv"
 	"log"
+	"net"
 
 	backend "github.com/Faizan2005/Backend"
 )
@@ -188,6 +191,29 @@ func NewLCountAlgo() LBStrategy {
 
 func NewWLCountAlgo() LBStrategy {
 	return &AlgoWLeastConn{}
+}
+
+func IPHash(pool *backend.BackendPool, host_ip string) *backend.BackendServer {
+	pool.Mutex.Lock()
+	defer pool.Mutex.Unlock()
+
+	ip, port, err := net.SplitHostPort(host_ip)
+	if err != nil {
+		fmt.Printf("Error splitting host and port from %s: %v\n", host_ip, err)
+		return nil
+	}
+
+	fmt.Printf("[IPHash] Client IP: %s, Port: %s\n", ip, port)
+
+	hash := fnv.New32a()
+	hash.Write([]byte(ip))
+	hashValue := hash.Sum32()
+	index := int(hashValue) % len(pool.Servers)
+
+	fmt.Printf("[IPHash] FNV Hash Value: %d, Backend Index: %d\n", hashValue, index)
+	fmt.Printf("[IPHash] Selected Backend: %s\n", pool.Servers[index].Address)
+
+	return pool.Servers[index]
 }
 
 func HasLoadImbalance(pool *backend.BackendPool) bool {
