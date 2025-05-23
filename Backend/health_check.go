@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (pool *BackendPool) HealthChecker() {
+func (pool *L4BackendPool) HealthChecker() {
 	for {
 
 		pool.Mutex.Lock()

@@ -12,7 +12,7 @@ import (
 type AlgoProperty struct {
 	Name      string
 	Priority  int
-	Condition func(pool *backend.BackendPool) bool
+	Condition func(pool *backend.L4BackendPool) bool
 }
 
 var AlgoRules = []AlgoProperty{
@@ -40,13 +40,13 @@ var AlgoRules = []AlgoProperty{
 
 // Interface for selecting lb algorithm for different situations
 type LBStrategy interface {
-	ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer
+	ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer
 }
 
 // Implementing RR algo
 type AlgoRR struct{}
 
-func (rr *AlgoRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+func (rr *AlgoRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -70,7 +70,7 @@ type AlgoWRR struct {
 	counter int
 }
 
-func (wrr *AlgoWRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+func (wrr *AlgoWRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -107,11 +107,11 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *backend.BackendPool) *backend.BackendSer
 
 type AlgoLeastConn struct{}
 
-func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
-	selected := new(*backend.BackendServer)
+	selected := new(*backend.L4BackendServer)
 	minConns := int(^uint(0) >> 1) // Max int
 
 	log.Println("Least Connections: Evaluating servers for least connections")
@@ -139,14 +139,14 @@ func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.Backe
 	return nil
 }
 
-func SelectAlgoL4(pool *backend.BackendPool) string {
+func SelectAlgoL4(pool *backend.L4BackendPool) string {
 	if HasUnevenWeights(pool) {
 		return "weighted_least_connection"
 	}
 	return "least_connection"
 }
 
-func SelectAlgoL7(pool *backend.BackendPool) string {
+func SelectAlgoL7(pool *backend.L4BackendPool) string {
 	if HasLoadImbalance(pool) {
 		if HasUnevenWeights(pool) {
 			return "weighted_least_connection"
@@ -159,7 +159,7 @@ func SelectAlgoL7(pool *backend.BackendPool) string {
 	return "round_robin"
 }
 
-func HasUnevenWeights(pool *backend.BackendPool) bool {
+func HasUnevenWeights(pool *backend.L4BackendPool) bool {
 	pool.Mutex.RLock()
 	defer pool.Mutex.RUnlock()
 
@@ -193,7 +193,7 @@ func NewWLCountAlgo() LBStrategy {
 	return &AlgoWLeastConn{}
 }
 
-func IPHash(pool *backend.BackendPool, host_ip string) *backend.BackendServer {
+func IPHash(pool *backend.L4BackendPool, host_ip string) *backend.L4BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -216,7 +216,7 @@ func IPHash(pool *backend.BackendPool, host_ip string) *backend.BackendServer {
 	return pool.Servers[index]
 }
 
-func HasLoadImbalance(pool *backend.BackendPool) bool {
+func HasLoadImbalance(pool *backend.L4BackendPool) bool {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
@@ -239,7 +239,7 @@ func HasLoadImbalance(pool *backend.BackendPool) bool {
 	return max-min >= 5
 }
 
-func ApplyAlgo(pool *backend.BackendPool, algoName string, algo map[string]LBStrategy) *backend.BackendServer {
+func ApplyAlgo(pool *backend.L4BackendPool, algoName string, algo map[string]LBStrategy) *backend.L4BackendServer {
 	strategy, exists := algo[algoName]
 	if !exists {
 		log.Printf("Algorithm %s not implemented", algoName)
@@ -255,11 +255,11 @@ func ApplyAlgo(pool *backend.BackendPool, algoName string, algo map[string]LBStr
 
 type AlgoWLeastConn struct{}
 
-func (wlc *AlgoWLeastConn) ImplementAlgo(pool *backend.BackendPool) *backend.BackendServer {
+func (wlc *AlgoWLeastConn) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
 	pool.Mutex.Lock()
 	defer pool.Mutex.Unlock()
 
-	selected := new(*backend.BackendServer)
+	selected := new(*backend.L4BackendServer)
 	minScore := int(^uint(0) >> 1) // Max int
 
 	log.Println("Weighted Least Connections: Evaluating servers for least connections")

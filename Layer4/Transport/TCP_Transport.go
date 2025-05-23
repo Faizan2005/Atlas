@@ -24,11 +24,11 @@ type TCPTransport struct {
 
 type LBProperties struct {
 	Transport     *TCPTransport
-	ServerPool    *backend.BackendPool
+	ServerPool    *backend.L4BackendPool
 	AlgorithmsMap map[string]algorithm.LBStrategy
 }
 
-func NewLBProperties(Transport TCPTransport, Pool backend.BackendPool) *LBProperties {
+func NewLBProperties(Transport TCPTransport, Pool backend.L4BackendPool) *LBProperties {
 	algoMap := map[string]algorithm.LBStrategy{
 		"round_robin":               algorithm.NewRRAlgo(),
 		"weighted_round_robin":      algorithm.NewWRRAlgo(),

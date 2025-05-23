@@ -7,18 +7,18 @@ import (
 	"net"
 )
 
-func MakeTestServers() []*BackendServer {
-	var servers []*BackendServer
+func MakeTestServers() []*L4BackendServer {
+	var servers []*L4BackendServer
 
 	weights := []int{5, 3, 1} // Highly skewed weights
 
 	for i := 0; i < 3; i++ {
 		addr := fmt.Sprintf(":900%d", i)
-		opts := ServerOpts{
+		opts := L4ServerOpts{
 			Address: addr,
 			Weight:  weights[i],
 		}
-		server := NewServer(opts)
+		server := L4NewServer(opts)
 		server.testServerListener()
 		servers = append(servers, server)
 	}
@@ -26,7 +26,7 @@ func MakeTestServers() []*BackendServer {
 	return servers
 }
 
-func (bs *BackendServer) testServerListener() {
+func (bs *L4BackendServer) testServerListener() {
 	listener, err := net.Listen("tcp", bs.Address)
 	if err != nil {
 		log.Printf("Error listening from server %s: %v", bs.Address, err)

@@ -16,7 +16,7 @@ func main() {
 
 	transport := tcp.NewTCPTransport(opts)
 
-	pool := backend.BackendPool{
+	pool := backend.L4BackendPool{
 		Servers: backend.MakeTestServers(),
 		Mutex:   *new(sync.RWMutex),
 	}
