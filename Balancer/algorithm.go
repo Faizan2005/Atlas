@@ -5,79 +5,143 @@ import (
 	"hash/fnv"
 	"log"
 	"net"
+	"time"
 
 	backend "github.com/Faizan2005/Backend"
 )
 
-type AlgoProperty struct {
-	Name      string
-	Priority  int
-	Condition func(pool *backend.L4BackendPool) bool
-}
-
-var AlgoRules = []AlgoProperty{
-	// {
-	//     Name: "ip_hash",
-	//     Priority: 1,
-	//     Condition: NeedsSessionAffinity,
-	// },
-	{
-		Name:      "least_connection",
-		Priority:  1,
-		Condition: HasLoadImbalance,
-	},
-	{
-		Name:      "weighted_round_robin",
-		Priority:  2,
-		Condition: HasUnevenWeights,
-	},
-	{
-		Name:      "round_robin",
-		Priority:  3,
-		Condition: HasUnevenWeights,
-	},
-}
-
 // Interface for selecting lb algorithm for different situations
 type LBStrategy interface {
-	ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer
+	ImplementAlgo(pool ServerPool) Server
 }
+
+type Server interface {
+	IsAlive() bool
+	GetConnCount() int
+	GetWeight() int
+	Lock()
+	Unlock()
+	GetAddress() string
+	GetLastChecked() time.Time
+}
+
+type ServerPool interface {
+	GetServers() []Server
+	GetServer(int) Server
+	GetIndex() int
+	SetIndex(int)
+	Lock()
+	Unlock()
+}
+
+type L4ServerAdapter struct {
+	*backend.L4BackendServer
+}
+
+func (s *L4ServerAdapter) IsAlive() bool             { return s.Alive }
+func (s *L4ServerAdapter) GetConnCount() int         { return s.ConnCount }
+func (s *L4ServerAdapter) GetWeight() int            { return s.Weight }
+func (s *L4ServerAdapter) GetAddress() string        { return s.Address }
+func (s *L4ServerAdapter) GetLastChecked() time.Time { return s.LastChecked }
+func (s *L4ServerAdapter) Lock()                     { s.Mx.Lock() }
+func (s *L4ServerAdapter) Unlock()                   { s.Mx.Unlock() }
+
+type L4PoolAdapter struct {
+	*backend.L4BackendPool
+}
+
+func (p *L4PoolAdapter) GetServers() []Server {
+	servers := []Server{}
+	for _, s := range p.Servers {
+		servers = append(servers, &L4ServerAdapter{s})
+	}
+	return servers
+}
+
+func (p *L4PoolAdapter) GetServer(index int) Server {
+	s := p.Servers[index]
+	return &L4ServerAdapter{s}
+}
+
+func (p *L4PoolAdapter) GetIndex() int      { return p.Index }
+func (p *L4PoolAdapter) SetIndex(index int) { p.Index = index }
+func (p *L4PoolAdapter) Lock()              { p.Mutex.RLock() }
+func (p *L4PoolAdapter) Unlock()            { p.Mutex.RUnlock() }
+
+type L7ServerAdapter struct {
+	*backend.L7BackendServer
+}
+
+func (s *L7ServerAdapter) IsAlive() bool             { return s.Alive }
+func (s *L7ServerAdapter) GetConnCount() int         { return s.ReqCount }
+func (s *L7ServerAdapter) GetWeight() int            { return s.Weight }
+func (s *L7ServerAdapter) GetAddress() string        { return s.Address }
+func (s *L7ServerAdapter) GetLastChecked() time.Time { return s.LastChecked }
+func (s *L7ServerAdapter) Lock()                     { s.Mx.Lock() }
+func (s *L7ServerAdapter) Unlock()                   { s.Mx.Unlock() }
+
+type L7PoolAdapter struct {
+	*backend.L7ServerPool
+}
+
+func (p *L7PoolAdapter) GetServers() []Server {
+	servers := []Server{}
+	for _, s := range p.Servers {
+		servers = append(servers, &L7ServerAdapter{s})
+	}
+	return servers
+}
+
+func (p *L7PoolAdapter) GetServer(index int) Server {
+	s := p.Servers[index]
+	return &L7ServerAdapter{s}
+}
+
+func (p *L7PoolAdapter) GetIndex() int      { return p.Index }
+func (p *L7PoolAdapter) SetIndex(index int) { p.Index = index }
+func (p *L7PoolAdapter) Lock()              { p.Mutex.RLock() }
+func (p *L7PoolAdapter) Unlock()            { p.Mutex.RUnlock() }
 
 // Implementing RR algo
 type AlgoRR struct{}
 
-func (rr *AlgoRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func (rr *AlgoRR) ImplementAlgo(pool ServerPool) Server {
+	pool.Lock()
+	defer pool.Unlock()
 
-	n := len(pool.Servers)
-	log.Printf("Round Robin: Starting selection from index %d", pool.Index)
+	servers := pool.GetServers()
+	n := len(servers)
+	startIndex := pool.GetIndex()
+
+	log.Printf("Round Robin: Starting selection from index %d", startIndex)
 
 	for i := 0; i < n; i++ {
-		index := (pool.Index + i) % n
-		if pool.Servers[index].Alive {
-			log.Printf("Round Robin: Selected server %s at index %d", pool.Servers[index].Address, index)
-			pool.Index = index + 1
-			return pool.Servers[index]
+		index := (startIndex + i) % n
+		server := pool.GetServer(index)
+
+		if server != nil && server.IsAlive() {
+			log.Printf("Round Robin: Selected server %s at index %d", server.GetAddress(), index)
+			pool.SetIndex((index + 1) % n) // Wrap around
+			return server
 		}
 	}
 
 	log.Println("Round Robin: No healthy server found")
-	return nil // No healthy server found
+	return nil
 }
 
 type AlgoWRR struct {
 	counter int
 }
 
-func (wrr *AlgoWRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func (wrr *AlgoWRR) ImplementAlgo(pool ServerPool) Server {
+	pool.Lock()
+	defer pool.Unlock()
 
 	total := 0
-	for _, s := range pool.Servers {
-		if s.Alive {
-			total += s.Weight
+	for _, s := range pool.GetServers() {
+		if s.IsAlive() {
+			total += s.GetWeight()
 		}
 	}
 
@@ -90,13 +154,13 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4Backen
 	log.Printf("Weighted Round Robin: Current counter value is %d", wrr.counter)
 
 	sum := 0
-	for _, s := range pool.Servers {
-		if !s.Alive {
+	for _, s := range pool.GetServers() {
+		if !s.IsAlive() {
 			continue
 		}
-		sum += s.Weight
+		sum += s.GetWeight()
 		if wrr.counter < sum {
-			log.Printf("Weighted Round Robin: Selected server %s with weight %d", s.Address, s.Weight)
+			log.Printf("Weighted Round Robin: Selected server %s with weight %d", s.GetAddress(), s.GetWeight())
 			return s
 		}
 	}
@@ -107,31 +171,31 @@ func (wrr *AlgoWRR) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4Backen
 
 type AlgoLeastConn struct{}
 
-func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func (lc *AlgoLeastConn) ImplementAlgo(pool ServerPool) Server {
+	pool.Lock()
+	defer pool.Unlock()
 
-	selected := new(*backend.L4BackendServer)
+	selected := new(Server)
 	minConns := int(^uint(0) >> 1) // Max int
 
 	log.Println("Least Connections: Evaluating servers for least connections")
 
-	for _, s := range pool.Servers {
-		s.Mx.Lock()
-		cCount := s.ConnCount
-		s.Mx.Unlock()
+	for _, s := range pool.GetServers() {
+		s.Lock()
+		cCount := s.GetConnCount()
+		s.Unlock()
 
-		log.Printf("Least Connections: Server %s has %d connections", s.Address, cCount)
+		log.Printf("Least Connections: Server %s has %d connections", s.GetAddress(), cCount)
 
 		if selected == nil || cCount < minConns {
 			selected = &s
 			minConns = cCount
-			log.Printf("Least Connections: New selected server %s with %d connections", s.Address, cCount)
+			log.Printf("Least Connections: New selected server %s with %d connections", s.GetAddress(), cCount)
 		}
 	}
 
 	if selected != nil {
-		log.Printf("Least Connections: Selected server %s with %d connections", (*selected).Address, minConns)
+		log.Printf("Least Connections: Selected server %s with %d connections", (*selected).GetAddress(), minConns)
 		return *selected
 	}
 
@@ -139,14 +203,14 @@ func (lc *AlgoLeastConn) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4B
 	return nil
 }
 
-func SelectAlgoL4(pool *backend.L4BackendPool) string {
+func SelectAlgoL4(pool ServerPool) string {
 	if HasUnevenWeights(pool) {
 		return "weighted_least_connection"
 	}
 	return "least_connection"
 }
 
-func SelectAlgoL7(pool *backend.L4BackendPool) string {
+func SelectAlgoL7(pool ServerPool) string {
 	if HasLoadImbalance(pool) {
 		if HasUnevenWeights(pool) {
 			return "weighted_least_connection"
@@ -159,17 +223,24 @@ func SelectAlgoL7(pool *backend.L4BackendPool) string {
 	return "round_robin"
 }
 
-func HasUnevenWeights(pool *backend.L4BackendPool) bool {
-	pool.Mutex.RLock()
-	defer pool.Mutex.RUnlock()
+func HasUnevenWeights(pool ServerPool) bool {
+	pool.Lock()
+	defer pool.Unlock()
 
-	if len(pool.Servers) == 0 {
+	if len(pool.GetServers()) == 0 {
 		return false
 	}
 
-	ref := pool.Servers[0].Weight
-	for _, s := range pool.Servers[1:] {
-		if s.Weight != ref {
+	refServer := pool.GetServer(0)
+	ref := refServer.GetWeight()
+
+	var serverSet = []Server{}
+	for i := 1; i < len(pool.GetServers()); i++ {
+		serverSet = append(serverSet, pool.GetServer(i))
+	}
+
+	for _, s := range serverSet {
+		if s.GetWeight() != ref {
 			return true
 		}
 	}
@@ -193,9 +264,9 @@ func NewWLCountAlgo() LBStrategy {
 	return &AlgoWLeastConn{}
 }
 
-func IPHash(pool *backend.L4BackendPool, host_ip string) *backend.L4BackendServer {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func IPHash(pool ServerPool, host_ip string) Server {
+	pool.Lock()
+	defer pool.Unlock()
 
 	ip, port, err := net.SplitHostPort(host_ip)
 	if err != nil {
@@ -208,38 +279,38 @@ func IPHash(pool *backend.L4BackendPool, host_ip string) *backend.L4BackendServe
 	hash := fnv.New32a()
 	hash.Write([]byte(ip))
 	hashValue := hash.Sum32()
-	index := int(hashValue) % len(pool.Servers)
+	index := int(hashValue) % len(pool.GetServers())
 
 	fmt.Printf("[IPHash] FNV Hash Value: %d, Backend Index: %d\n", hashValue, index)
-	fmt.Printf("[IPHash] Selected Backend: %s\n", pool.Servers[index].Address)
+	fmt.Printf("[IPHash] Selected Backend: %s\n", pool.GetServer(index).GetAddress())
 
-	return pool.Servers[index]
+	return pool.GetServer(index)
 }
 
-func HasLoadImbalance(pool *backend.L4BackendPool) bool {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func HasLoadImbalance(pool ServerPool) bool {
+	pool.Lock()
+	defer pool.Unlock()
 
-	if len(pool.Servers) < 2 {
+	if len(pool.GetServers()) < 2 {
 		return false
 	}
 
-	max, min := pool.Servers[0].ConnCount, pool.Servers[0].ConnCount
+	max, min := pool.GetServer(0).GetConnCount(), pool.GetServer(0).GetConnCount()
 
-	for _, s := range pool.Servers {
-		if s.ConnCount > max {
-			max = s.ConnCount
+	for _, s := range pool.GetServers() {
+		if s.GetConnCount() > max {
+			max = s.GetConnCount()
 		}
 
-		if s.ConnCount < min {
-			min = s.ConnCount
+		if s.GetConnCount() < min {
+			min = s.GetConnCount()
 		}
 	}
 
 	return max-min >= 5
 }
 
-func ApplyAlgo(pool *backend.L4BackendPool, algoName string, algo map[string]LBStrategy) *backend.L4BackendServer {
+func ApplyAlgo(pool ServerPool, algoName string, algo map[string]LBStrategy) Server {
 	strategy, exists := algo[algoName]
 	if !exists {
 		log.Printf("Algorithm %s not implemented", algoName)
@@ -255,31 +326,31 @@ func ApplyAlgo(pool *backend.L4BackendPool, algoName string, algo map[string]LBS
 
 type AlgoWLeastConn struct{}
 
-func (wlc *AlgoWLeastConn) ImplementAlgo(pool *backend.L4BackendPool) *backend.L4BackendServer {
-	pool.Mutex.Lock()
-	defer pool.Mutex.Unlock()
+func (wlc *AlgoWLeastConn) ImplementAlgo(pool ServerPool) Server {
+	pool.Lock()
+	defer pool.Unlock()
 
-	selected := new(*backend.L4BackendServer)
+	selected := new(Server)
 	minScore := int(^uint(0) >> 1) // Max int
 
 	log.Println("Weighted Least Connections: Evaluating servers for least connections")
 
-	for _, s := range pool.Servers {
-		s.Mx.Lock()
-		score := int(s.ConnCount) / int(s.Weight)
-		s.Mx.Unlock()
+	for _, s := range pool.GetServers() {
+		s.Lock()
+		score := int(s.GetConnCount()) / int(s.GetWeight())
+		s.Unlock()
 
-		log.Printf("Weighted Least Connections: Server %s has %d connections", s.Address, score)
+		log.Printf("Weighted Least Connections: Server %s has %d connections", s.GetAddress(), score)
 
 		if selected == nil || score < minScore {
 			selected = &s
 			minScore = score
-			log.Printf("Weighted Least Connections: New selected server %s with %d connections", s.Address, score)
+			log.Printf("Weighted Least Connections: New selected server %s with %d connections", s.GetAddress(), score)
 		}
 	}
 
 	if selected != nil {
-		log.Printf("Weighted Least Connections: Selected server %s with %d score", (*selected).Address, minScore)
+		log.Printf("Weighted Least Connections: Selected server %s with %d score", (*selected).GetAddress(), minScore)
 		return *selected
 	}
 

@@ -10,7 +10,6 @@ import (
 
 	backend "github.com/Faizan2005/Backend"
 	algorithm "github.com/Faizan2005/Balancer"
-	L7 "github.com/Faizan2005/Layer7"
 )
 
 type TransportOpts struct {
@@ -22,23 +21,39 @@ type TCPTransport struct {
 	Listener net.Listener
 }
 
-type LBProperties struct {
-	Transport     *TCPTransport
-	L4ServerPool  *backend.L4BackendPool
-	AlgorithmsMap map[string]algorithm.LBStrategy
+type L7LBProperties struct {
+	L7Pools map[string]*backend.L7ServerPool
 }
 
-func NewLBProperties(Transport TCPTransport, Pool backend.L4BackendPool) *LBProperties {
+func NewL7LBProperties(pools map[string]*backend.L7ServerPool) *L7LBProperties {
+	return &L7LBProperties{
+		L7Pools: pools,
+	}
+}
+
+type LBProperties struct {
+	Transport             *TCPTransport
+	L4ServerPoolInterface algorithm.ServerPool
+	L4ServerPool          *backend.L4BackendPool
+	AlgorithmsMap         map[string]algorithm.LBStrategy
+	L7LBProperties        *L7LBProperties
+}
+
+func NewLBProperties(Transport TCPTransport, L4Pool backend.L4BackendPool, L7Prop *L7LBProperties) *LBProperties {
 	algoMap := map[string]algorithm.LBStrategy{
 		"round_robin":               algorithm.NewRRAlgo(),
 		"weighted_round_robin":      algorithm.NewWRRAlgo(),
 		"least_connection":          algorithm.NewLCountAlgo(),
 		"weighted_least_connection": algorithm.NewWLCountAlgo(),
 	}
+
+	L4PoolAdapter := algorithm.L4PoolAdapter{&L4Pool}
 	return &LBProperties{
-		Transport:     &Transport,
-		L4ServerPool:  &Pool,
-		AlgorithmsMap: algoMap,
+		Transport:             &Transport,
+		L4ServerPoolInterface: &L4PoolAdapter,
+		L4ServerPool:          &L4Pool,
+		AlgorithmsMap:         algoMap,
+		L7LBProperties:        L7Prop,
 	}
 }
 
@@ -94,11 +109,10 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 		log.Println("Error peeking:", err)
 	}
 
-	go func() {
-		if isHTTP(data[:]) {
-			L7.HandleHTTP(data, conn)
-		}
-	}()
+	if isHTTP(data[:]) {
+		go p.L7LBProperties.HandleHTTP(data, conn)
+		return
+	}
 
 	defer func() {
 		log.Printf("Closing connection with client %s", conn.RemoteAddr())
@@ -112,18 +126,19 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	// 	}
 	// }()
 
-	algoName := algorithm.SelectAlgoL4(p.L4ServerPool)
+	algoName := algorithm.SelectAlgoL4(p.L4ServerPoolInterface)
 
 	log.Printf("Selected algo to implement (%s)", algoName)
 	// algo := p.AlgorithmsMap[algoName]
 	// server := algo.ImplementAlgo(p.ServerPool)
-	server := algorithm.ApplyAlgo(p.L4ServerPool, algoName, p.AlgorithmsMap)
+	server := algorithm.ApplyAlgo(p.L4ServerPoolInterface, algoName, p.AlgorithmsMap)
 
-	server.Mx.Lock()
-	server.ConnCount++
-	server.Mx.Unlock()
+	server.Lock()
+	connCount := server.GetConnCount()
+	connCount++
+	server.Unlock()
 
-	backendConn, err := net.Dial("tcp", server.Address)
+	backendConn, err := net.Dial("tcp", server.GetAddress())
 	if err != nil {
 		log.Printf("Failed to dial backend: %v", err)
 		return
@@ -133,9 +148,10 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	io.Copy(conn, backendConn)    // server → client
 	log.Print("echoed msg from server to client")
 
-	server.Mx.Lock()
-	server.ConnCount--
-	server.Mx.Unlock()
+	server.Lock()
+	connCount = server.GetConnCount()
+	connCount--
+	server.Unlock()
 
 	defer func() {
 		log.Printf("Closing backend connection with server %s", backendConn.RemoteAddr())
