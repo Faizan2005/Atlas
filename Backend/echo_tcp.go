@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-func MakeTestServers() []*L4BackendServer {
+func MakeL4TestServers() []*L4BackendServer {
 	var servers []*L4BackendServer
 
 	weights := []int{5, 3, 1} // Highly skewed weights
@@ -18,7 +18,7 @@ func MakeTestServers() []*L4BackendServer {
 			Address: addr,
 			Weight:  weights[i],
 		}
-		server := L4NewServer(opts)
+		server := NewL4Server(opts)
 		server.testServerListener()
 		servers = append(servers, server)
 	}

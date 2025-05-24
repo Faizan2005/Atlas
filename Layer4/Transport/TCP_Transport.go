@@ -24,7 +24,7 @@ type TCPTransport struct {
 
 type LBProperties struct {
 	Transport     *TCPTransport
-	ServerPool    *backend.L4BackendPool
+	L4ServerPool  *backend.L4BackendPool
 	AlgorithmsMap map[string]algorithm.LBStrategy
 }
 
@@ -37,7 +37,7 @@ func NewLBProperties(Transport TCPTransport, Pool backend.L4BackendPool) *LBProp
 	}
 	return &LBProperties{
 		Transport:     &Transport,
-		ServerPool:    &Pool,
+		L4ServerPool:  &Pool,
 		AlgorithmsMap: algoMap,
 	}
 }
@@ -112,12 +112,12 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	// 	}
 	// }()
 
-	algoName := algorithm.SelectAlgoL4(p.ServerPool)
+	algoName := algorithm.SelectAlgoL4(p.L4ServerPool)
 
 	log.Printf("Selected algo to implement (%s)", algoName)
 	// algo := p.AlgorithmsMap[algoName]
 	// server := algo.ImplementAlgo(p.ServerPool)
-	server := algorithm.ApplyAlgo(p.ServerPool, algoName, p.AlgorithmsMap)
+	server := algorithm.ApplyAlgo(p.L4ServerPool, algoName, p.AlgorithmsMap)
 
 	server.Mx.Lock()
 	server.ConnCount++

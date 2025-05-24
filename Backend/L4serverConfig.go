@@ -26,7 +26,7 @@ type L4BackendPool struct {
 	Index   int // For Round Robin
 }
 
-func L4NewServer(Opts L4ServerOpts) *L4BackendServer {
+func NewL4Server(Opts L4ServerOpts) *L4BackendServer {
 	return &L4BackendServer{
 		L4ServerOpts:  Opts,
 		Alive:         true,
