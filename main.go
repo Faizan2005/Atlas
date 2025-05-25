@@ -6,16 +6,15 @@ import (
 	"time"
 
 	backend "github.com/Faizan2005/Backend"
-	tcp "github.com/Faizan2005/Layer4/Transport"
-	L7 "github.com/Faizan2005/Layer7"
+	netw "github.com/Faizan2005/Network"
 )
 
 func main() {
-	opts := tcp.TransportOpts{
+	opts := netw.TransportOpts{
 		ListenAddr: ":3000",
 	}
 
-	transport := tcp.NewTCPTransport(opts)
+	transport := netw.NewTCPTransport(opts)
 
 	L4pool := backend.L4BackendPool{
 		Servers: backend.MakeL4TestServers(),
@@ -41,11 +40,9 @@ func main() {
 		"dynamic": dynamicPool,
 	}
 
-	L7Prop := L7.L7LBProperties{
-		L7Pools: L7pools,
-	}
+	L7Prop := netw.NewL7LBProperties(L7pools)
 
-	p := tcp.NewLBProperties(*transport, L4pool, &L7Prop)
+	p := netw.NewLBProperties(*transport, L4pool, L7Prop)
 
 	if err := p.ListenAndAccept(); err != nil {
 		panic(err)

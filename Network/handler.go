@@ -1,4 +1,4 @@
-package layer7
+package network
 
 import (
 	"bufio"
@@ -9,21 +9,10 @@ import (
 	"net/http"
 	"strings"
 
-	backend "github.com/Faizan2005/Backend"
 	algorithm "github.com/Faizan2005/Balancer"
 )
 
-type L7LBProperties struct {
-	L7Pools map[string]*backend.L7ServerPool
-}
-
-func NewL7LBProperties(pools map[string]*backend.L7ServerPool) *L7LBProperties {
-	return &L7LBProperties{
-		L7Pools: pools,
-	}
-}
-
-func (lb *L7LBProperties) HandleHTTP(data []byte, conn net.Conn) {
+func (lb *LBProperties) HandleHTTP(data []byte, conn net.Conn) {
 	peekReader := bytes.NewReader(data)
 	bufReader := bufio.NewReader(io.MultiReader(peekReader, conn))
 
@@ -40,14 +29,14 @@ func (lb *L7LBProperties) HandleHTTP(data []byte, conn net.Conn) {
 	log.Printf("Host header: %s\n URL path: %s\n Cookie: %v\n User-Agent header: %s", host, path, cookie, userAgent)
 
 	urlType := ClassifyURLRequest(path)
-	pool := lb.L7Pools[urlType]
+	pool := lb.L7LBProperties.L7Pools[urlType]
 	L7PoolAdaptr := algorithm.L7PoolAdapter{pool}
 
 	algoName := algorithm.SelectAlgoL7(&L7PoolAdaptr)
 
 	log.Printf("Selected algo to implement (%s)", algoName)
 
-	server := algorithm.ApplyAlgo(&L7PoolAdaptr, algoName)
+	server := algorithm.ApplyAlgo(&L7PoolAdaptr, algoName, lb.AlgorithmsMap)
 
 }
 
