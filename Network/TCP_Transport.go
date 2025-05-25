@@ -42,13 +42,13 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	log.Printf("Connection established with %s", conn.RemoteAddr())
 
 	reader := bufio.NewReader(conn)
-	data, err := reader.Peek(16)
+	data, err := reader.Peek(8)
 	if err != nil {
 		log.Println("Error peeking:", err)
 	}
 
 	if isHTTP(data[:]) {
-		go p.HandleHTTP(data, conn)
+		go p.HandleHTTP(reader, conn)
 		return
 	}
 
@@ -72,8 +72,7 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	server := algorithm.ApplyAlgo(p.L4ServerPoolInterface, algoName, p.AlgorithmsMap)
 
 	server.Lock()
-	connCount := server.GetConnCount()
-	connCount++
+	server.SetConnCount(server.GetConnCount() + 1)
 	server.Unlock()
 
 	backendConn, err := net.Dial("tcp", server.GetAddress())
@@ -87,8 +86,7 @@ func (p *LBProperties) handleConn(conn net.Conn) {
 	log.Print("echoed msg from server to client")
 
 	server.Lock()
-	connCount = server.GetConnCount()
-	connCount--
+	server.SetConnCount(server.GetConnCount() - 1)
 	server.Unlock()
 
 	defer func() {

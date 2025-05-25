@@ -19,7 +19,8 @@ func MakeL7StaticTestServers() []*L7BackendServer {
 			Weight:  weights[i],
 		}
 		server := NewL7Server(opts)
-		server.testStaticServerListener()
+		log.Printf("[L7_TEST_SERVER] Creating static test server at %s with weight %d", addr, weights[i])
+		go server.testStaticServerListener()
 		servers = append(servers, server)
 	}
 
@@ -27,19 +28,26 @@ func MakeL7StaticTestServers() []*L7BackendServer {
 }
 
 func (s *L7BackendServer) testStaticServerListener() {
-	fs := http.FileServer(http.Dir("./static"))
+	//fs := http.FileServer(http.Dir("./static"))
 	mux := http.NewServeMux()
-	mux.Handle("/", fs)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[L7_TEST_SERVER] Received request for: %s", r.URL.Path)
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("HEY THERE! THIS IS A PONG MESSAGE\n"))
+	})
 
 	server := &http.Server{
 		Addr:    s.Address,
 		Handler: mux,
 	}
 
-	log.Printf("Static server running on %s", s.Address)
+	log.Printf("[L7_TEST_SERVER] Static server starting on %s", s.Address)
 	err := server.ListenAndServe()
-	if err != nil {
-		log.Printf("Error listening on port (%s): %v", s.Address, err)
+	if err != nil && err != http.ErrServerClosed {
+		log.Printf("[L7_TEST_SERVER] Error listening on port %s: %v", s.Address, err)
+	} else {
+		log.Printf("[L7_TEST_SERVER] Static server on %s stopped", s.Address)
 	}
 }
 
@@ -55,7 +63,8 @@ func MakeL7DynamicTestServers() []*L7BackendServer {
 			Weight:  weights[i],
 		}
 		server := NewL7Server(opts)
-		server.testDynamicServerListener()
+		log.Printf("[L7_TEST_SERVER] Creating dynamic test server at %s with weight %d", addr, weights[i])
+		go server.testDynamicServerListener()
 		servers = append(servers, server)
 	}
 
@@ -71,14 +80,18 @@ func (s *L7BackendServer) testDynamicServerListener() {
 		Handler: mux,
 	}
 
-	log.Printf("Dynamic server running on %s", s.Address)
+	log.Printf("[L7_TEST_SERVER] Dynamic server starting on %s", s.Address)
 	err := server.ListenAndServe()
-	if err != nil {
-		log.Printf("Error listening on port (%s): %v", s.Address, err)
+	if err != nil && err != http.ErrServerClosed {
+		log.Printf("[L7_TEST_SERVER] Error listening on port %s: %v", s.Address, err)
+	} else {
+		log.Printf("[L7_TEST_SERVER] Dynamic server on %s stopped", s.Address)
 	}
 }
 
 func dynamicHandlerFunc(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[L7_TEST_SERVER] Dynamic handler received request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+
 	response := map[string]string{
 		"path":   r.URL.Path,
 		"method": r.Method,
@@ -86,5 +99,7 @@ func dynamicHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[L7_TEST_SERVER] Error encoding response: %v", err)
+	}
 }

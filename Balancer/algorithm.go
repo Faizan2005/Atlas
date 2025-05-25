@@ -18,6 +18,7 @@ type LBStrategy interface {
 type Server interface {
 	IsAlive() bool
 	GetConnCount() int
+	SetConnCount(int)
 	GetWeight() int
 	Lock()
 	Unlock()
@@ -38,13 +39,14 @@ type L4ServerAdapter struct {
 	*backend.L4BackendServer
 }
 
-func (s *L4ServerAdapter) IsAlive() bool             { return s.Alive }
-func (s *L4ServerAdapter) GetConnCount() int         { return s.ConnCount }
-func (s *L4ServerAdapter) GetWeight() int            { return s.Weight }
-func (s *L4ServerAdapter) GetAddress() string        { return s.Address }
-func (s *L4ServerAdapter) GetLastChecked() time.Time { return s.LastChecked }
-func (s *L4ServerAdapter) Lock()                     { s.Mx.Lock() }
-func (s *L4ServerAdapter) Unlock()                   { s.Mx.Unlock() }
+func (s *L4ServerAdapter) IsAlive() bool              { return s.Alive }
+func (s *L4ServerAdapter) GetConnCount() int          { return s.ConnCount }
+func (s *L4ServerAdapter) SetConnCount(connCount int) { s.ConnCount = connCount }
+func (s *L4ServerAdapter) GetWeight() int             { return s.Weight }
+func (s *L4ServerAdapter) GetAddress() string         { return s.Address }
+func (s *L4ServerAdapter) GetLastChecked() time.Time  { return s.LastChecked }
+func (s *L4ServerAdapter) Lock()                      { s.Mx.Lock() }
+func (s *L4ServerAdapter) Unlock()                    { s.Mx.Unlock() }
 
 type L4PoolAdapter struct {
 	*backend.L4BackendPool
@@ -74,6 +76,7 @@ type L7ServerAdapter struct {
 
 func (s *L7ServerAdapter) IsAlive() bool             { return s.Alive }
 func (s *L7ServerAdapter) GetConnCount() int         { return s.ReqCount }
+func (s *L7ServerAdapter) SetConnCount(reqCount int) { s.ReqCount = reqCount }
 func (s *L7ServerAdapter) GetWeight() int            { return s.Weight }
 func (s *L7ServerAdapter) GetAddress() string        { return s.Address }
 func (s *L7ServerAdapter) GetLastChecked() time.Time { return s.LastChecked }
@@ -217,9 +220,11 @@ func SelectAlgoL7(pool ServerPool) string {
 		}
 		return "least_connection"
 	}
+
 	if HasUnevenWeights(pool) {
 		return "weighted_round_robin"
 	}
+
 	return "round_robin"
 }
 
